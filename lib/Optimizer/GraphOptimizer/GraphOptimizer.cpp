@@ -5448,6 +5448,34 @@ bool FoldLayerNormArithmetic::run(Function *F, const CompilationContext &cctx) {
   return changed;
 }
 
+/// Sink quantization below reshape node to increase the opportunity
+/// to merge it with dequantize node.
+bool SinkQuantizeBelowReshape::run(Function *F, const CompilationContext &cctx) {
+  LOG_SCOPE(F->getLogContext(), getName());
+
+  // Input -> QN -> RS -> Output
+  //   \_ newRS -> newQN _/
+  bool changed = false;
+  for (auto &N : F->getNodes()) {
+    ReshapeNode *RS = dyn_cast<ReshapeNode>(&N);
+    if (!RS) {
+      continue;
+    }
+
+    QuantizeNode *QN = dyn_cast<QuantizeNode>(RS->getInput());
+    if (!QN || QN->getNumUsers() > 1) {
+      continue;;
+    }
+
+    ReshapeNode *newRS = F->createReshape(RS->getName(), QN->getInput(), RS->getDims(), RS->getLayout());
+    QuantizeNode *newQN = F->createQuantize(QN->getName(), newRS, QN->getResult().getType());
+    RS->getResult().replaceAllUsesOfWith(newQN->getResult());
+    changed = true;
+  }
+
+  return true;
+}
+
 /// Looks for an activation directly following \p N from \p F that the backend
 /// \p B supports for fusion.
 template <class T> bool fuseActivation(T *N, Function *F, const Backend *B) {
