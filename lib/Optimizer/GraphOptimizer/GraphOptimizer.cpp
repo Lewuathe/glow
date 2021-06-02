@@ -5451,6 +5451,7 @@ bool FoldLayerNormArithmetic::run(Function *F, const CompilationContext &cctx) {
 /// Sink quantization below reshape node to increase the opportunity
 /// to merge it with dequantize node.
 bool SinkQuantizeBelowReshape::run(Function *F, const CompilationContext &cctx) {
+  std::cout << "====== xxx =========" << std::endl;
   LOG_SCOPE(F->getLogContext(), getName());
 
   // Input -> QN -> RS -> Output
@@ -5467,9 +5468,12 @@ bool SinkQuantizeBelowReshape::run(Function *F, const CompilationContext &cctx) 
       continue;;
     }
 
+    auto *qTy = F->getParent()->uniqueType(QN->getResult().getElementType(), RS->getDims(), QN->getResult().getScale(), QN->getResult().getOffset());
+    std::cout << "====== changed =========" << std::endl;
     ReshapeNode *newRS = F->createReshape(RS->getName(), QN->getInput(), RS->getDims(), RS->getLayout());
-    QuantizeNode *newQN = F->createQuantize(QN->getName(), newRS, QN->getResult().getType());
+    QuantizeNode *newQN = F->createQuantize(QN->getName(), newRS, qTy);
     RS->getResult().replaceAllUsesOfWith(newQN->getResult());
+
     changed = true;
   }
 

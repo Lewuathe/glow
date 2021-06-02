@@ -8081,3 +8081,32 @@ TEST_F(GraphOptz, FoldExpSumDivIntoSoftmax) {
 
   checkNumericalEquivalence(1e-7f);
 }
+
+
+TEST_F(GraphOptz, SinkQuantizeBelowReshape) {
+  auto *qTy = mod_.uniqueType(ElemKind::Int8QTy, {10}, 0.2, 0);
+  Placeholder *in =
+      mod_.createPlaceholder(ElemKind::FloatTy, {10}, "input", false);
+  QuantizeNode *QN = F_->createQuantize("quant", in, qTy);
+  ReshapeNode *reshape = F_->createReshape("reshape", QN, {2, 5});
+  SaveNode *save = F_->createSave("save", reshape);
+
+  optimizedF_ = optimizeFunctionForTest(F_);
+
+  // Same number of nodes, just swapped order.
+  EXPECT_EQ(F_->getNodes().size(), 3);
+  EXPECT_EQ(optimizedF_->getNodes().size(), 3);
+
+  const SaveNode *optSave =
+      findFunctionNodeByName<SaveNode>(optimizedF_, save->getName());
+  ASSERT_TRUE(optSave);
+  QuantizeNode *newQN = llvm::dyn_cast<QuantizeNode>(optSave->getInput());
+  ASSERT_TRUE(newQN);
+  ReshapeNode *newReshape = llvm::dyn_cast<ReshapeNode>(newQN->getInput());
+  ASSERT_TRUE(newReshape);
+  EXPECT_EQ(newReshape->getResult().dims(), reshape->getResult().dims());
+
+  bindings_.allocate(mod_.getPlaceholders());
+  bindings_.get(in)->getHandle().randomize(-1.0, 1.0, mod_.getPRNG());
+  checkNumericalEquivalence();
+}
